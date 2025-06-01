@@ -1,3 +1,10 @@
+-- Big Data - Modelagem SBD OLTP
+
+-- Grupo
+-- Alice Duarte Faria Ribeiro - DRE 122058907
+-- Beatriz Farias do Nascimento – DRE 122053127
+-- Gustavo do Amaral Roxo Pereira - DRE 122081146
+
 CREATE DATABASE locadora_veiculos;
 
 USE locadora_veiculos;
