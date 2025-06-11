@@ -1,458 +1,264 @@
--- Script SQL de Transformação ETL para a Área de Staging
+-- SQL Script para Transformação ETL
+-- Este script realiza o tratamento e conformação dos dados da área de staging,
+-- oriundos de diversos sistemas OLTP (incluindo o próprio e os outros grupos),
+-- antes de serem carregados nas tabelas de fatos e dimensões do DW.
 
--- Criação das tabelas temporárias na área de staging
-USE locadora_dw_staging;
+USE locadora_dw_staging; -- Trabalhando na área de staging para transformações intermediárias
 
--- 1. Tabela temporária para Dim_Empresa
-CREATE TABLE IF NOT EXISTS temp_dim_empresa (
-    id_empresa_origem VARCHAR(50) NOT NULL,
-    sistema_origem VARCHAR(50) NOT NULL,
-    nome_empresa VARCHAR(255) NOT NULL,
-    cnpj VARCHAR(18),
-    endereco_empresa VARCHAR(255),
-    PRIMARY KEY (id_empresa_origem, sistema_origem)
-);
+-- NOTA IMPORTANTE: As chaves substitutas (sk_*) serão resolvidas na fase de CARGA (Load),
+-- pois dependem da existência e população das tabelas de dimensão no DW final.
+-- Aqui, nas tabelas temporárias de transformação, manteremos as chaves de origem
+-- (id_origem, sistema_origem) e os atributos denormalizados.
 
--- 2. Tabela temporária para Dim_Patio
-CREATE TABLE IF NOT EXISTS temp_dim_patio (
-    id_patio_origem VARCHAR(50) NOT NULL,
-    sistema_origem VARCHAR(50) NOT NULL,
-    nome_patio VARCHAR(100) NOT NULL,
-    endereco_patio VARCHAR(255),
-    cidade_patio VARCHAR(100),
-    estado_patio VARCHAR(100),
-    capacidade_vagas_patio INT,
-    nome_empresa_proprietaria VARCHAR(255),
-    PRIMARY KEY (id_patio_origem, sistema_origem)
-);
+-- Limpeza de tabelas temporárias existentes para garantir um reprocessamento limpo
+DROP TEMPORARY TABLE IF EXISTS temp_dim_empresa;
+DROP TEMPORARY TABLE IF EXISTS temp_dim_patio;
+DROP TEMPORARY TABLE IF EXISTS temp_dim_cliente;
+DROP TEMPORARY TABLE IF EXISTS temp_dim_veiculo;
+DROP TEMPORARY TABLE IF EXISTS temp_dim_condutor;
+DROP TEMPORARY TABLE IF EXISTS temp_dim_seguro;
+DROP TEMPORARY TABLE IF EXISTS temp_fato_locacao;
+DROP TEMPORARY TABLE IF EXISTS temp_fato_reserva;
+DROP TEMPORARY TABLE IF EXISTS temp_fato_movimentacao_patio;
 
--- 3. Tabela temporária para Dim_Cliente
-CREATE TABLE IF NOT EXISTS temp_dim_cliente (
-    id_cliente_origem VARCHAR(50) NOT NULL,
-    sistema_origem VARCHAR(50) NOT NULL,
-    tipo_cliente VARCHAR(10) NOT NULL,
-    nome_razao_social VARCHAR(255) NOT NULL,
-    cpf VARCHAR(14),
-    cnpj VARCHAR(18),
-    endereco VARCHAR(255),
-    telefone VARCHAR(20),
-    email VARCHAR(100),
-    cidade_cliente VARCHAR(100),
-    estado_cliente VARCHAR(100),
-    pais_cliente VARCHAR(100),
-    data_cadastro DATE,
-    PRIMARY KEY (id_cliente_origem, sistema_origem)
-);
 
--- 4. Tabela temporária para Dim_Veiculo
-CREATE TABLE IF NOT EXISTS temp_dim_veiculo (
-    id_veiculo_origem VARCHAR(50) NOT NULL,
-    sistema_origem VARCHAR(50) NOT NULL,
-    placa VARCHAR(10) NOT NULL,
-    chassi VARCHAR(50) NOT NULL,
-    marca VARCHAR(50),
-    modelo VARCHAR(100),
-    ano_fabricacao SMALLINT,
-    cor VARCHAR(50),
-    tipo_mecanizacao VARCHAR(50),
-    nome_grupo_veiculo VARCHAR(100),
-    descricao_grupo_veiculo VARCHAR(255),
-    valor_diaria_base_grupo DECIMAL(10, 2),
-    url_foto_principal VARCHAR(255),
-    tem_ar_condicionado BOOLEAN,
-    tem_cadeirinha BOOLEAN,
-    PRIMARY KEY (id_veiculo_origem, sistema_origem)
-);
-
--- 5. Tabela temporária para Dim_Condutor
-CREATE TABLE IF NOT EXISTS temp_dim_condutor (
-    id_condutor_origem VARCHAR(50) NOT NULL,
-    sistema_origem VARCHAR(50) NOT NULL,
-    nome_completo_condutor VARCHAR(255) NOT NULL,
-    numero_cnh_condutor VARCHAR(50),
-    categoria_cnh_condutor VARCHAR(10),
-    data_expiracao_cnh_condutor DATE,
-    data_nascimento_condutor DATE,
-    nacionalidade_condutor VARCHAR(100),
-    tipo_documento_habilitacao VARCHAR(50),
-    pais_emissao_cnh VARCHAR(100),
-    data_entrada_brasil DATE,
-    flag_traducao_juramentada BOOLEAN,
-    PRIMARY KEY (id_condutor_origem, sistema_origem)
-);
-
--- 6. Tabela temporária para Dim_Seguro
-CREATE TABLE IF NOT EXISTS temp_dim_seguro (
-    id_seguro_origem VARCHAR(50) NOT NULL,
-    sistema_origem VARCHAR(50) NOT NULL,
-    nome_seguro VARCHAR(100) NOT NULL,
-    descricao_seguro VARCHAR(255),
-    valor_diario_seguro DECIMAL(10, 2),
-    PRIMARY KEY (id_seguro_origem, sistema_origem)
-);
-
--- 7. Tabela temporária para Fato_Locacao
-CREATE TABLE IF NOT EXISTS temp_fato_locacao (
-    id_locacao_origem VARCHAR(50) NOT NULL,
-    sistema_origem VARCHAR(50) NOT NULL,
-    data_retirada_date DATE,
-    hora_retirada_time TIME,
-    data_dev_prev_date DATE,
-    hora_dev_prev_time TIME,
-    data_dev_real_date DATE,
-    hora_dev_real_time TIME,
-    id_cliente_origem VARCHAR(50) NOT NULL,
-    id_veiculo_origem VARCHAR(50) NOT NULL,
-    id_condutor_origem VARCHAR(50),
-    id_patio_retirada_real_origem VARCHAR(50) NOT NULL,
-    id_patio_devolucao_prevista_origem VARCHAR(50) NOT NULL,
-    id_patio_devolucao_real_origem VARCHAR(50),
-    status_locacao_nome VARCHAR(50) NOT NULL,
-    id_seguro_contratado_origem VARCHAR(50),
-    valor_total_locacao DECIMAL(10, 2),
-    valor_base_locacao DECIMAL(10, 2),
-    valor_multas_taxas DECIMAL(10, 2),
-    valor_seguro DECIMAL(10, 2),
-    valor_descontos DECIMAL(10, 2),
-    quilometragem_percorrida DECIMAL(10, 2),
-    duracao_locacao_horas_prevista DECIMAL(10, 2),
-    duracao_locacao_horas_real DECIMAL(10, 2),
-    quant_locacoes INT NOT NULL DEFAULT 1,
-    PRIMARY KEY (id_locacao_origem, sistema_origem)
-);
-
--- 8. Tabela temporária para Fato_Reserva
-CREATE TABLE IF NOT EXISTS temp_fato_reserva (
-    id_reserva_origem VARCHAR(50) NOT NULL,
-    sistema_origem VARCHAR(50) NOT NULL,
-    data_reserva_date DATE,
-    hora_reserva_time TIME,
-    data_ret_prev_date DATE,
-    hora_ret_prev_time TIME,
-    data_dev_prev_date DATE,
-    hora_dev_prev_time TIME,
-    id_cliente_origem VARCHAR(50) NOT NULL,
-    id_grupo_veiculo_origem VARCHAR(50) NOT NULL, -- Chave de negócio para o grupo do veículo
-    id_patio_retirada_previsto_origem VARCHAR(50) NOT NULL,
-    status_reserva_nome VARCHAR(50) NOT NULL,
-    quant_reservas INT NOT NULL DEFAULT 1,
-    dias_antecedencia_reserva INT,
-    duracao_reserva_horas_prevista DECIMAL(10, 2),
-    PRIMARY KEY (id_reserva_origem, sistema_origem)
-);
-
--- 9. Tabela temporária para Fato_Movimentacao_Patio
-CREATE TABLE IF NOT EXISTS temp_fato_movimentacao_patio (
-    id_evento_origem VARCHAR(50) NOT NULL, -- Identificador único do evento de movimentação
-    sistema_origem VARCHAR(50) NOT NULL,
-    data_mov_date DATE,
-    hora_mov_time TIME,
-    id_veiculo_origem VARCHAR(50) NOT NULL,
-    id_patio_origem VARCHAR(50), -- Pode ser NULL
-    id_patio_destino VARCHAR(50), -- Pode ser NULL
-    tipo_movimentacao_nome VARCHAR(50) NOT NULL,
-    id_empresa_proprietaria_frota_origem VARCHAR(50) NOT NULL,
-    id_empresa_patio_origem VARCHAR(50) NOT NULL,
-    id_locacao_origem VARCHAR(50), -- Opcional, para linkar à locação se for uma movimentação de retirada/devolução
-    quant_movimentacoes INT NOT NULL DEFAULT 1,
-    ocupacao_veiculo_horas DECIMAL(10, 2),
-    PRIMARY KEY (id_evento_origem, sistema_origem)
-);
-
--- Limpeza das tabelas temporárias (garantir que não há dados antigos)
-TRUNCATE TABLE temp_dim_empresa;
-TRUNCATE TABLE temp_dim_patio;
-TRUNCATE TABLE temp_dim_cliente;
-TRUNCATE TABLE temp_dim_veiculo;
-TRUNCATE TABLE temp_dim_condutor;
-TRUNCATE TABLE temp_dim_seguro;
-TRUNCATE TABLE temp_fato_locacao;
-TRUNCATE TABLE temp_fato_reserva;
-TRUNCATE TABLE temp_fato_movimentacao_patio;
-
--- Exemplo de extração e transformação de dados de um sistema de origem (Sistema A)
--- **NOTA:** Você precisaria substituir 'seu_banco_de_origem_sistema_a' e as tabelas
--- por suas tabelas OLTP reais. Este é um EXEMPLO.
-
--- Inserção de dados na temp_dim_empresa (do Sistema A)
-INSERT INTO temp_dim_empresa (id_empresa_origem, sistema_origem, nome_empresa, cnpj, endereco_empresa)
+-- 1. Transformação para Dim_Empresa
+-- Consolida dados de empresas de todos os grupos.
+CREATE TEMPORARY TABLE temp_dim_empresa AS
 SELECT
-    e.id_empresa,
-    'SistemaA',
-    e.nome,
-    e.cnpj,
-    e.endereco
-FROM seu_banco_de_origem_sistema_a.empresas e
-ON DUPLICATE KEY UPDATE -- Para garantir que as inserções de múltiplos sistemas funcionem sem erro de PK
-    nome_empresa = VALUES(nome_empresa),
-    cnpj = VALUES(cnpj),
-    endereco_empresa = VALUES(endereco_empresa);
+    t.id_empresa_origem,
+    t.sistema_origem,
+    COALESCE(t.nome_empresa, 'Empresa Desconhecida') AS nome_empresa,
+    COALESCE(t.cnpj, '') AS cnpj,
+    COALESCE(t.endereco, 'N/A') AS endereco_empresa, -- Padroniza nome da coluna
+    COALESCE(t.telefone, '') AS telefone_empresa -- Garante existência da coluna
+FROM stg_empresa t
+GROUP BY t.id_empresa_origem, t.sistema_origem, t.nome_empresa, t.cnpj, t.endereco, t.telefone;
 
--- Inserção de dados na temp_dim_patio (do Sistema A)
-INSERT INTO temp_dim_patio (id_patio_origem, sistema_origem, nome_patio, endereco_patio, cidade_patio, estado_patio, capacidade_vagas_patio, nome_empresa_proprietaria)
+
+-- 2. Transformação para Dim_Patio
+-- Consolida dados de pátios e denormaliza nome da empresa proprietária.
+CREATE TEMPORARY TABLE temp_dim_patio AS
 SELECT
-    p.id_patio,
-    'SistemaA',
-    p.nome_patio,
-    p.endereco,
-    p.cidade,
-    p.estado,
-    p.capacidade,
-    (SELECT nome FROM seu_banco_de_origem_sistema_a.empresas WHERE id_empresa = p.id_empresa_proprietaria)
-FROM seu_banco_de_origem_sistema_a.patios p
-ON DUPLICATE KEY UPDATE
-    nome_patio = VALUES(nome_patio),
-    endereco_patio = VALUES(endereco_patio),
-    cidade_patio = VALUES(cidade_patio),
-    estado_patio = VALUES(estado_patio),
-    capacidade_vagas_patio = VALUES(capacidade_vagas_patio),
-    nome_empresa_proprietaria = VALUES(nome_empresa_proprietaria);
+    sp.id_patio_origem,
+    sp.sistema_origem,
+    COALESCE(sp.nome_patio, 'Pátio Desconhecido') AS nome_patio,
+    COALESCE(sp.endereco, 'N/A') AS endereco_patio,
+    -- Tentativa de extrair cidade e estado do endereço se não existirem campos específicos
+    TRIM(COALESCE(sp.cidade, SUBSTRING_INDEX(SUBSTRING_INDEX(COALESCE(sp.endereco, ''), ',', 2), ',', -1))) AS cidade_patio, -- 'cidade' pode vir do DDL do Grupo 10
+    TRIM(COALESCE(sp.estado_origem, SUBSTRING_INDEX(COALESCE(sp.endereco, ''), ',', -1))) AS estado_patio, -- 'estado_origem' pode vir do Grupo 10
+    COALESCE(sp.capacidade_vagas, 0) AS capacidade_vagas_patio,
+    tde.nome_empresa AS nome_empresa_proprietaria -- Denormaliza nome da empresa
+FROM stg_patio sp
+LEFT JOIN temp_dim_empresa tde ON sp.id_empresa_origem = tde.id_empresa_origem AND sp.sistema_origem = tde.sistema_origem;
 
--- Inserção de dados na temp_dim_cliente (do Sistema A)
-INSERT INTO temp_dim_cliente (id_cliente_origem, sistema_origem, tipo_cliente, nome_razao_social, cpf, cnpj, endereco, telefone, email, cidade_cliente, estado_cliente, pais_cliente, data_cadastro)
+
+-- 3. Transformação para Dim_Cliente
+-- Padroniza tipo de cliente, consolida CPF/CNPJ e tenta extrair localização.
+CREATE TEMPORARY TABLE temp_dim_cliente AS
 SELECT
-    c.id_cliente,
-    'SistemaA',
-    CASE WHEN c.cpf IS NOT NULL THEN 'PF' ELSE 'PJ' END,
-    c.nome_razao_social,
-    c.cpf,
-    c.cnpj,
-    c.endereco,
-    c.telefone,
-    c.email,
-    c.cidade,
-    c.estado,
-    c.pais,
-    c.data_cadastro
-FROM seu_banco_de_origem_sistema_a.clientes c
-ON DUPLICATE KEY UPDATE
-    tipo_cliente = VALUES(tipo_cliente),
-    nome_razao_social = VALUES(nome_razao_social),
-    cpf = VALUES(cpf),
-    cnpj = VALUES(cnpj),
-    endereco = VALUES(endereco),
-    telefone = VALUES(telefone),
-    email = VALUES(email),
-    cidade_cliente = VALUES(cidade_cliente),
-    estado_cliente = VALUES(estado_cliente),
-    pais_cliente = VALUES(pais_cliente),
-    data_cadastro = VALUES(data_cadastro);
+    sc.id_cliente_origem,
+    sc.sistema_origem,
+    CASE
+        WHEN sc.tipo_cliente IN ('PF', 'F', 'FISICA', 'Pessoa Física') THEN 'PF'
+        WHEN sc.tipo_cliente IN ('PJ', 'J', 'JURIDICA', 'Pessoa Jurídica') THEN 'PJ'
+        ELSE 'Desconhecido'
+    END AS tipo_cliente,
+    COALESCE(sc.nome_razao_social, 'Cliente Desconhecido') AS nome_razao_social,
+    COALESCE(sc.cpf, '') AS cpf,
+    COALESCE(sc.cnpj, '') AS cnpj,
+    COALESCE(sc.endereco, 'N/A') AS endereco,
+    COALESCE(sc.telefone, '') AS telefone,
+    COALESCE(sc.email, '') AS email,
+    TRIM(COALESCE(sc.cidade_cliente, 'N/A')) AS cidade_cliente,
+    TRIM(COALESCE(sc.estado_cliente, 'N/A')) AS estado_cliente,
+    'Brasil' AS pais_cliente, -- Assumindo Brasil ou mapeamento mais complexo
+    DATE(COALESCE(sc.data_cadastro, sc.data_carga)) AS data_cadastro -- Usa data de cadastro ou data de carga
+FROM stg_cliente sc;
 
--- Inserção de dados na temp_dim_veiculo (do Sistema A)
-INSERT INTO temp_dim_veiculo (id_veiculo_origem, sistema_origem, placa, chassi, marca, modelo, ano_fabricacao, cor, tipo_mecanizacao, nome_grupo_veiculo, descricao_grupo_veiculo, valor_diaria_base_grupo, url_foto_principal, tem_ar_condicionado, tem_cadeirinha)
+
+-- 4. Transformação para Dim_Veiculo
+-- Denormaliza informações do grupo de veículo e infere acessórios/características.
+CREATE TEMPORARY TABLE temp_dim_veiculo AS
 SELECT
-    v.id_veiculo,
-    'SistemaA',
-    v.placa,
-    v.chassi,
-    v.marca,
-    v.modelo,
-    v.ano_fabricacao,
-    v.cor,
-    v.tipo_mecanizacao,
-    gv.nome_grupo,
-    gv.descricao,
-    gv.valor_diaria,
-    v.url_foto,
-    v.tem_ar_condicionado,
-    v.tem_cadeirinha
-FROM seu_banco_de_origem_sistema_a.veiculos v
-JOIN seu_banco_de_origem_sistema_a.grupos_veiculos gv ON v.id_grupo_veiculo = gv.id_grupo_veiculo
-ON DUPLICATE KEY UPDATE
-    placa = VALUES(placa),
-    chassi = VALUES(chassi),
-    marca = VALUES(marca),
-    modelo = VALUES(modelo),
-    ano_fabricacao = VALUES(ano_fabricacao),
-    cor = VALUES(cor),
-    tipo_mecanizacao = VALUES(tipo_mecanizacao),
-    nome_grupo_veiculo = VALUES(nome_grupo_veiculo),
-    descricao_grupo_veiculo = VALUES(descricao_grupo_veiculo),
-    valor_diaria_base_grupo = VALUES(valor_diaria_base_grupo),
-    url_foto_principal = VALUES(url_foto_principal),
-    tem_ar_condicionado = VALUES(tem_ar_condicionado),
-    tem_cadeirinha = VALUES(tem_cadeirinha);
+    sv.id_veiculo_origem,
+    sv.sistema_origem,
+    COALESCE(sv.placa, 'N/A') AS placa,
+    COALESCE(sv.chassi, 'N/A') AS chassi,
+    COALESCE(sv.marca, 'Desconhecida') AS marca,
+    COALESCE(sv.modelo, 'Desconhecido') AS modelo,
+    COALESCE(sv.ano_fabricacao, 1900) AS ano_fabricacao,
+    COALESCE(sv.cor, 'Não Definida') AS cor,
+    CASE
+        WHEN sv.tipo_mecanizacao IN ('Automática', 'Auto', 'AUTOMATICA', 'A') THEN 'Automática'
+        WHEN sv.tipo_mecanizacao IN ('Manual', 'MANUAL', 'M') THEN 'Manual'
+        ELSE 'Desconhecida'
+    END AS tipo_mecanizacao,
+    COALESCE(sgv.nome_grupo, 'N/A') AS nome_grupo_veiculo,
+    COALESCE(sgv.descricao, 'N/A') AS descricao_grupo_veiculo,
+    COALESCE(sgv.valor_diaria_base, 0.00) AS valor_diaria_base_grupo,
+    COALESCE(sv.url_foto_principal, '') AS url_foto_principal,
+    -- Inferência de acessórios baseada em colunas de origem
+    COALESCE(sv.tem_ar_condicionado, FALSE) AS tem_ar_condicionado,
+    COALESCE(sv.tem_cadeirinha, FALSE) AS tem_cadeirinha
+FROM stg_veiculo sv
+LEFT JOIN stg_grupo_veiculo sgv ON sv.id_grupo_veiculo_origem = sgv.id_grupo_veiculo_origem AND sv.sistema_origem = sgv.sistema_origem;
 
--- Inserção de dados na temp_dim_condutor (do Sistema A)
-INSERT INTO temp_dim_condutor (id_condutor_origem, sistema_origem, nome_completo_condutor, numero_cnh_condutor, categoria_cnh_condutor, data_expiracao_cnh_condutor, data_nascimento_condutor, nacionalidade_condutor, tipo_documento_habilitacao, pais_emissao_cnh, data_entrada_brasil, flag_traducao_juramentada)
+
+-- 5. Transformação para Dim_Condutor
+-- Padroniza nomes e garante dados de CNH.
+CREATE TEMPORARY TABLE temp_dim_condutor AS
 SELECT
-    c.id_condutor,
-    'SistemaA',
-    c.nome_completo,
-    c.numero_cnh,
-    c.categoria_cnh,
-    c.data_expiracao_cnh,
-    c.data_nascimento,
-    c.nacionalidade,
-    c.tipo_documento_habilitacao,
-    c.pais_emissao_cnh,
-    c.data_entrada_brasil,
-    c.flag_traducao_juramentada
-FROM seu_banco_de_origem_sistema_a.condutores c
-ON DUPLICATE KEY UPDATE
-    nome_completo_condutor = VALUES(nome_completo_condutor),
-    numero_cnh_condutor = VALUES(numero_cnh_condutor),
-    categoria_cnh_condutor = VALUES(categoria_cnh_condutor),
-    data_expiracao_cnh_condutor = VALUES(data_expiracao_cnh_condutor),
-    data_nascimento_condutor = VALUES(data_nascimento_condutor),
-    nacionalidade_condutor = VALUES(nacionalidade_condutor),
-    tipo_documento_habilitacao = VALUES(tipo_documento_habilitacao),
-    pais_emissao_cnh = VALUES(pais_emissao_cnh),
-    data_entrada_brasil = VALUES(data_entrada_brasil),
-    flag_traducao_juramentada = VALUES(flag_traducao_juramentada);
+    sc.id_condutor_origem,
+    sc.sistema_origem,
+    COALESCE(sc.nome_completo, 'Condutor Desconhecido') AS nome_completo_condutor,
+    COALESCE(sc.numero_cnh, 'N/A') AS numero_cnh_condutor,
+    COALESCE(sc.categoria_cnh, 'N/A') AS categoria_cnh_condutor,
+    COALESCE(sc.data_expiracao_cnh, '1900-01-01') AS data_expiracao_cnh_condutor,
+    COALESCE(sc.data_nascimento, '1900-01-01') AS data_nascimento_condutor,
+    COALESCE(sc.nacionalidade, 'Desconhecida') AS nacionalidade_condutor,
+    COALESCE(sc.tipo_documento_habilitacao, 'CNH Brasileira') AS tipo_documento_habilitacao,
+    COALESCE(sc.pais_emissao_cnh, 'Brasil') AS pais_emissao_cnh,
+    COALESCE(sc.data_entrada_brasil, '1900-01-01') AS data_entrada_brasil,
+    COALESCE(sc.flag_traducao_juramentada, FALSE) AS flag_traducao_juramentada
+FROM stg_condutor sc;
 
--- Inserção de dados na temp_dim_seguro (do Sistema A)
-INSERT INTO temp_dim_seguro (id_seguro_origem, sistema_origem, nome_seguro, descricao_seguro, valor_diario_seguro)
+
+-- 6. Transformação para Dim_Seguro
+-- Padroniza nomes e descrições de seguros.
+CREATE TEMPORARY TABLE temp_dim_seguro AS
 SELECT
-    s.id_seguro,
-    'SistemaA',
-    s.nome,
-    s.descricao,
-    s.valor_diario
-FROM seu_banco_de_origem_sistema_a.seguros s
-ON DUPLICATE KEY UPDATE
-    nome_seguro = VALUES(nome_seguro),
-    descricao_seguro = VALUES(descricao_seguro),
-    valor_diario_seguro = VALUES(valor_diario_seguro);
+    ss.id_seguro_origem,
+    ss.sistema_origem,
+    COALESCE(ss.nome_seguro, 'Seguro Padrão') AS nome_seguro,
+    COALESCE(ss.descricao, 'N/A') AS descricao_seguro,
+    COALESCE(ss.valor_diario, 0.00) AS valor_diario_seguro
+FROM stg_seguro ss;
 
--- Inserção de dados na temp_fato_locacao (do Sistema A)
-INSERT INTO temp_fato_locacao (
-    id_locacao_origem, sistema_origem, data_retirada_date, hora_retirada_time,
-    data_dev_prev_date, hora_dev_prev_time, data_dev_real_date, hora_dev_real_time,
-    id_cliente_origem, id_veiculo_origem, id_condutor_origem,
-    id_patio_retirada_real_origem, id_patio_devolucao_prevista_origem, id_patio_devolucao_real_origem,
-    status_locacao_nome, id_seguro_contratado_origem,
-    valor_total_locacao, valor_base_locacao, valor_multas_taxas, valor_seguro, valor_descontos,
-    quilometragem_percorrida, duracao_locacao_horas_prevista, duracao_locacao_horas_real
-)
+
+-- 7. Transformação para Fato_Locacao
+-- Calcula medidas e prepara chaves de negócio para resolução de SKs na carga.
+CREATE TEMPORARY TABLE temp_fato_locacao AS
 SELECT
-    l.id_locacao,
-    'SistemaA',
-    DATE(l.data_hora_retirada), TIME(l.data_hora_retirada),
-    DATE(l.data_hora_devolucao_prevista), TIME(l.data_hora_devolucao_prevista),
-    DATE(l.data_hora_devolucao_real), TIME(l.data_hora_devolucao_real),
-    l.id_cliente,
-    l.id_veiculo,
-    l.id_condutor_extra,
-    l.id_patio_retirada,
-    l.id_patio_devolucao_prevista,
-    l.id_patio_devolucao_real,
-    sl.nome_status,
-    l.id_seguro_contratado,
-    l.valor_total,
-    l.valor_base,
-    l.valor_multas,
-    l.valor_seguro,
-    l.valor_descontos,
-    (l.quilometragem_devolucao - l.quilometragem_retirada),
-    TIMESTAMPDIFF(HOUR, l.data_hora_retirada, l.data_hora_devolucao_prevista),
-    TIMESTAMPDIFF(HOUR, l.data_hora_retirada, l.data_hora_devolucao_real)
-FROM seu_banco_de_origem_sistema_a.locacoes l
-JOIN seu_banco_de_origem_sistema_a.status_locacao sl ON l.id_status = sl.id_status
-ON DUPLICATE KEY UPDATE -- Para evitar erros em re-execuções, embora fatos geralmente não sejam atualizados.
-    data_retirada_date = VALUES(data_retirada_date),
-    hora_retirada_time = VALUES(hora_retirada_time),
-    data_dev_prev_date = VALUES(data_dev_prev_date),
-    hora_dev_prev_time = VALUES(hora_dev_prev_time),
-    data_dev_real_date = VALUES(data_dev_real_date),
-    hora_dev_real_time = VALUES(hora_dev_real_time),
-    id_cliente_origem = VALUES(id_cliente_origem),
-    id_veiculo_origem = VALUES(id_veiculo_origem),
-    id_condutor_origem = VALUES(id_condutor_origem),
-    id_patio_retirada_real_origem = VALUES(id_patio_retirada_real_origem),
-    id_patio_devolucao_prevista_origem = VALUES(id_patio_devolucao_prevista_origem),
-    id_patio_devolucao_real_origem = VALUES(id_patio_devolucao_real_origem),
-    status_locacao_nome = VALUES(status_locacao_nome),
-    id_seguro_contratado_origem = VALUES(id_seguro_contratado_origem),
-    valor_total_locacao = VALUES(valor_total_locacao),
-    valor_base_locacao = VALUES(valor_base_locacao),
-    valor_multas_taxas = VALUES(valor_multas_taxas),
-    valor_seguro = VALUES(valor_seguro),
-    valor_descontos = VALUES(valor_descontos),
-    quilometragem_percorrida = VALUES(quilometragem_percorrida),
-    duracao_locacao_horas_prevista = VALUES(duracao_locacao_horas_prevista),
-    duracao_locacao_horas_real = VALUES(duracao_locacao_horas_real);
+    sl.id_locacao_origem,
+    sl.sistema_origem,
+    -- Chaves de negócio para resolução de SKs de Dim_Tempo
+    DATE(sl.data_hora_retirada_real) AS data_retirada_date,
+    TIME(sl.data_hora_retirada_real) AS hora_retirada_time,
+    DATE(sl.data_hora_devolucao_prevista) AS data_dev_prev_date,
+    TIME(sl.data_hora_devolucao_prevista) AS hora_dev_prev_time,
+    DATE(sl.data_hora_devolucao_real) AS data_dev_real_date,
+    TIME(sl.data_hora_devolucao_real) AS hora_dev_real_time,
+    -- Chaves de negócio para resolução de SKs de outras dimensões
+    sl.id_cliente_origem,
+    sl.id_veiculo_origem,
+    sl.id_condutor_origem,
+    sl.id_patio_retirada_real_origem,
+    sl.id_patio_devolucao_prevista_origem,
+    sl.id_patio_devolucao_real_origem,
+    CASE
+        WHEN sl.status_locacao IN ('Ativa', 'Ativo', 'EM_USO') THEN 'Ativa'
+        WHEN sl.status_locacao IN ('Concluida', 'FINALIZADO', 'Finalizada') THEN 'Concluida'
+        WHEN sl.status_locacao IN ('Cancelada', 'Cancelado') THEN 'Cancelada'
+        ELSE 'Desconhecido'
+    END AS status_locacao_nome,
+    COALESCE(sl.id_seguro_contratado_origem, '-1') AS id_seguro_contratado_origem, -- Default para '-1' se não houver seguro
 
--- Inserção de dados na temp_fato_reserva (do Sistema A)
-INSERT INTO temp_fato_reserva (
-    id_reserva_origem, sistema_origem, data_reserva_date, hora_reserva_time,
-    data_ret_prev_date, hora_ret_prev_time, data_dev_prev_date, hora_dev_prev_time,
-    id_cliente_origem, id_grupo_veiculo_origem, id_patio_retirada_previsto_origem,
-    status_reserva_nome, dias_antecedencia_reserva, duracao_reserva_horas_prevista
-)
+    -- Métricas:
+    COALESCE(sl.valor_total_final, sl.valor_total_previsto, 0.00) AS valor_total_locacao,
+    COALESCE(sl.valor_total_previsto, 0.00) AS valor_base_locacao,
+    COALESCE((SELECT sc.valor_multas_taxas FROM stg_cobranca sc WHERE sc.id_locacao_origem = sl.id_locacao_origem AND sc.sistema_origem = sl.sistema_origem LIMIT 1), 0.00) AS valor_multas_taxas,
+    COALESCE((SELECT sc.valor_seguro FROM stg_cobranca sc WHERE sc.id_locacao_origem = sl.id_locacao_origem AND sc.sistema_origem = sl.sistema_origem LIMIT 1), 0.00) AS valor_seguro,
+    COALESCE((SELECT sc.valor_descontos FROM stg_cobranca sc WHERE sc.id_locacao_origem = sl.id_locacao_origem AND sc.sistema_origem = sl.sistema_origem LIMIT 1), 0.00) AS valor_descontos,
+
+    IF(sl.quilometragem_devolucao IS NOT NULL AND sl.quilometragem_retirada IS NOT NULL, sl.quilometragem_devolucao - sl.quilometragem_retirada, NULL) AS quilometragem_percorrida,
+    TIMESTAMPDIFF(HOUR, sl.data_hora_retirada_real, sl.data_hora_devolucao_prevista) AS duracao_locacao_horas_prevista,
+    IF(sl.data_hora_devolucao_real IS NOT NULL, TIMESTAMPDIFF(HOUR, sl.data_hora_retirada_real, sl.data_hora_devolucao_real), NULL) AS duracao_locacao_horas_real,
+    1 AS quant_locacoes
+FROM stg_locacao sl;
+
+
+-- 8. Transformação para Fato_Reserva
+-- Prepara dados para o fato de reserva, calculando medidas como antecedência e duração.
+CREATE TEMPORARY TABLE temp_fato_reserva AS
 SELECT
-    r.id_reserva,
-    'SistemaA',
-    DATE(r.data_hora_reserva), TIME(r.data_hora_reserva),
-    DATE(r.data_hora_retirada_prevista), TIME(r.data_hora_retirada_prevista),
-    DATE(r.data_hora_devolucao_prevista), TIME(r.data_hora_devolucao_prevista),
-    r.id_cliente,
-    r.id_grupo_veiculo, -- Assumindo que a reserva é feita por grupo de veículo
-    r.id_patio_retirada_previsto,
-    sr.nome_status,
-    DATEDIFF(r.data_hora_retirada_prevista, r.data_hora_reserva),
-    TIMESTAMPDIFF(HOUR, r.data_hora_retirada_prevista, r.data_hora_devolucao_prevista)
-FROM seu_banco_de_origem_sistema_a.reservas r
-JOIN seu_banco_de_origem_sistema_a.status_reserva sr ON r.id_status_reserva = sr.id_status
-ON DUPLICATE KEY UPDATE
-    data_reserva_date = VALUES(data_reserva_date),
-    hora_reserva_time = VALUES(hora_reserva_time),
-    data_ret_prev_date = VALUES(data_ret_prev_date),
-    hora_ret_prev_time = VALUES(hora_ret_prev_time),
-    data_dev_prev_date = VALUES(data_dev_prev_date),
-    hora_dev_prev_time = VALUES(hora_dev_prev_time),
-    id_cliente_origem = VALUES(id_cliente_origem),
-    id_grupo_veiculo_origem = VALUES(id_grupo_veiculo_origem),
-    id_patio_retirada_previsto_origem = VALUES(id_patio_retirada_previsto_origem),
-    status_reserva_nome = VALUES(status_reserva_nome),
-    dias_antecedencia_reserva = VALUES(dias_antecedencia_reserva),
-    duracao_reserva_horas_prevista = VALUES(duracao_reserva_horas_prevista);
+    sr.id_reserva_origem,
+    sr.sistema_origem,
+    -- Chaves de negócio para resolução de SKs de Dim_Tempo
+    DATE(sr.data_hora_reserva) AS data_reserva_date,
+    TIME(sr.data_hora_reserva) AS hora_reserva_time,
+    DATE(sr.data_hora_retirada_prevista) AS data_ret_prev_date,
+    TIME(sr.data_hora_retirada_prevista) AS hora_ret_prev_time,
+    DATE(sr.data_hora_devolucao_prevista) AS data_dev_prev_date,
+    TIME(sr.data_hora_devolucao_prevista) AS hora_dev_prev_time,
+    -- Chaves de negócio para resolução de SKs de outras dimensões
+    sr.id_cliente_origem,
+    COALESCE(sr.id_grupo_veiculo_origem, '-1') AS id_grupo_veiculo_origem, -- Default para '-1' se NULL (Grupo 2)
+    sr.id_patio_retirada_previsto_origem,
+    COALESCE(sr.status_reserva, 'Desconhecido') AS status_reserva_nome,
 
--- Inserção de dados na temp_fato_movimentacao_patio (do Sistema A)
-INSERT INTO temp_fato_movimentacao_patio (
-    id_evento_origem, sistema_origem, data_mov_date, hora_mov_time,
-    id_veiculo_origem, id_patio_origem, id_patio_destino, tipo_movimentacao_nome,
-    id_empresa_proprietaria_frota_origem, id_empresa_patio_origem, id_locacao_origem, ocupacao_veiculo_horas
-)
+    -- Métricas:
+    1 AS quant_reservas,
+    DATEDIFF(sr.data_hora_retirada_prevista, sr.data_hora_reserva) AS dias_antecedencia_reserva,
+    TIMESTAMPDIFF(HOUR, sr.data_hora_reserva, sr.data_hora_devolucao_prevista) AS duracao_reserva_horas_prevista
+FROM stg_reserva sr;
+
+
+-- 9. Transformação para Fato_Movimentacao_Patio
+-- Deriva eventos de movimentação de pátio a partir de locações e logs de estado de veículo.
+CREATE TEMPORARY TABLE temp_fato_movimentacao_patio AS
 SELECT
-    mp.id_movimentacao_patio,
-    'SistemaA',
-    DATE(mp.data_hora_movimentacao), TIME(mp.data_hora_movimentacao),
-    mp.id_veiculo,
-    mp.id_patio_origem,
-    mp.id_patio_destino,
-    tmp.nome_tipo_movimentacao,
-    (SELECT id_empresa_proprietaria FROM seu_banco_de_origem_sistema_a.veiculos WHERE id_veiculo = mp.id_veiculo) AS id_empresa_frota,
-    mp.id_empresa_patio_origem,
-    mp.id_locacao_referencia, -- Se a movimentação está ligada a uma locação
-    mp.horas_ocupacao -- Assumindo que este campo existe ou é calculado na origem
-FROM seu_banco_de_origem_sistema_a.movimentacao_patio mp
-JOIN seu_banco_de_origem_sistema_a.tipo_movimentacao_patio tmp ON mp.id_tipo_movimentacao = tmp.id_tipo
-ON DUPLICATE KEY UPDATE
-    data_mov_date = VALUES(data_mov_date),
-    hora_mov_time = VALUES(hora_mov_time),
-    id_veiculo_origem = VALUES(id_veiculo_origem),
-    id_patio_origem = VALUES(id_patio_origem),
-    id_patio_destino = VALUES(id_patio_destino),
-    tipo_movimentacao_nome = VALUES(tipo_movimentacao_nome),
-    id_empresa_proprietaria_frota_origem = VALUES(id_empresa_proprietaria_frota_origem),
-    id_empresa_patio_origem = VALUES(id_empresa_patio_origem),
-    id_locacao_origem = VALUES(id_locacao_origem),
-    ocupacao_veiculo_horas = VALUES(ocupacao_veiculo_horas);
-
--- NOTA: Repita os blocos INSERT para cada Sistema de Origem (Sistema B, Sistema C, etc.),
--- ajustando os nomes das tabelas e as colunas de acordo com o esquema de cada sistema.
--- Exemplo para Sistema B:
-/*
--- Inserção de dados na temp_dim_empresa (do Sistema B)
-INSERT INTO temp_dim_empresa (id_empresa_origem, sistema_origem, nome_empresa, cnpj, endereco_empresa)
+    id_estado_veiculo_locacao_origem AS id_evento_origem,
+    sistema_origem,
+    DATE(data_hora_registro) AS data_mov_date,
+    TIME(data_hora_registro) AS hora_mov_time,
+    id_veiculo_origem,
+    id_patio_origem,
+    id_locacao_origem,
+    CASE
+        WHEN tipo_registro IN ('Entrega', 'Saída') THEN 'Saída'
+        WHEN tipo_registro IN ('Devolucao', 'Entrada', 'Manutencao', 'Revisao', 'Prontuario', 'Foto') THEN 'Entrada' -- Mapeia diversos tipos para Entrada
+        ELSE 'Desconhecido'
+    END AS tipo_movimentacao_nome,
+    quilometragem_evento,
+    1 AS quant_movimentacoes,
+    NULL AS ocupacao_veiculo_horas -- Calculado na carga para eventos de saída
+FROM stg_estado_veiculo_locacao
+WHERE id_veiculo_origem IS NOT NULL AND id_patio_origem IS NOT NULL -- Apenas eventos com veículo e pátio identificados
+UNION ALL
+-- Inferir eventos de entrada/saída de LOCACAO se não forem capturados por ESTADO_VEICULO_LOCACAO
 SELECT
-    e.emp_id,
-    'SistemaB',
-    e.emp_nome,
-    e.emp_cnpj,
-    e.emp_end
-FROM seu_banco_de_origem_sistema_b.empresas_b e;
+    sl.id_locacao_origem AS id_evento_origem, -- Usando ID da locação como ID do evento de movimentação
+    sl.sistema_origem,
+    DATE(sl.data_hora_retirada_real) AS data_mov_date,
+    TIME(sl.data_hora_retirada_real) AS hora_mov_time,
+    sl.id_veiculo_origem,
+    sl.id_patio_retirada_real_origem AS id_patio_origem,
+    NULL AS id_patio_destino, -- Saída do pátio
+    'Saída' AS tipo_movimentacao_nome,
+    NULL AS quilometragem_evento,
+    1 AS quant_movimentacoes,
+    NULL AS ocupacao_veiculo_horas
+FROM stg_locacao sl
+WHERE sl.id_locacao_origem NOT IN (SELECT id_locacao_origem FROM stg_estado_veiculo_locacao WHERE sistema_origem = sl.sistema_origem AND tipo_registro IN ('Entrega', 'Saída') AND id_locacao_origem IS NOT NULL) -- Evita duplicatas se já houver registro de saída na stg_estado_veiculo_locacao
+UNION ALL
+SELECT
+    sl.id_locacao_origem AS id_evento_origem,
+    sl.sistema_origem,
+    DATE(sl.data_hora_devolucao_real) AS data_mov_date,
+    TIME(sl.data_hora_devolucao_real) AS hora_mov_time,
+    sl.id_veiculo_origem,
+    sl.id_patio_retirada_real_origem AS id_patio_origem, -- Pátio de onde veio (retirada)
+    sl.id_patio_devolucao_real_origem AS id_patio_destino, -- Pátio de destino (devolução)
+    'Entrada' AS tipo_movimentacao_nome,
+    NULL AS quilometragem_evento,
+    1 AS quant_movimentacoes,
+    NULL AS ocupacao_veiculo_horas
+FROM stg_locacao sl
+WHERE sl.data_hora_devolucao_real IS NOT NULL
+AND sl.id_locacao_origem NOT IN (SELECT id_locacao_origem FROM stg_estado_veiculo_locacao WHERE sistema_origem = sl.sistema_origem AND tipo_registro IN ('Devolucao', 'Entrada') AND id_locacao_origem IS NOT NULL); -- Evita duplicatas
 
--- ... e assim por diante para todas as tabelas temporárias e sistemas de origem.
-*/
+
+-- NOTA ADICIONAL: A lógica para 'sk_empresa_proprietaria_frota' e 'sk_empresa_patio'
+-- na Fato_Movimentacao_Patio será resolvida na fase de carga, onde as SKs das empresas
+-- e pátios já estarão disponíveis. Aqui, focamos em identificar o evento de movimentação.

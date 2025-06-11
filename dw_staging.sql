@@ -8,7 +8,7 @@ USE locadora_dw_staging;
 
 -- Tabela de Staging para EMPRESA
 CREATE TABLE IF NOT EXISTS stg_empresa (
-    id_empresa_origem INT,
+    id_empresa_origem VARCHAR(50),
     nome_empresa VARCHAR(100),
     cnpj VARCHAR(18),
     endereco VARCHAR(255),
@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS stg_empresa (
 
 -- Tabela de Staging para PATIO
 CREATE TABLE IF NOT EXISTS stg_patio (
-    id_patio_origem INT,
-    id_empresa_origem INT, -- FK para a empresa proprietária do pátio
+    id_patio_origem VARCHAR(50),
+    id_empresa_origem VARCHAR(50), -- FK para a empresa proprietária do pátio
     nome_patio VARCHAR(100),
     endereco VARCHAR(255),
     capacidade_vagas INT,
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS stg_patio (
 
 -- Tabela de Staging para GRUPO_VEICULO
 CREATE TABLE IF NOT EXISTS stg_grupo_veiculo (
-    id_grupo_veiculo_origem INT,
+    id_grupo_veiculo_origem VARCHAR(50),
     nome_grupo VARCHAR(50),
     descricao VARCHAR(255),
     valor_diaria_base DECIMAL(10, 2),
@@ -40,9 +40,9 @@ CREATE TABLE IF NOT EXISTS stg_grupo_veiculo (
 
 -- Tabela de Staging para VEICULO
 CREATE TABLE IF NOT EXISTS stg_veiculo (
-    id_veiculo_origem INT,
-    id_grupo_veiculo_origem INT,
-    id_patio_atual_origem INT, -- ID do pátio atual no sistema de origem
+    id_veiculo_origem VARCHAR(50),
+    id_grupo_veiculo_origem VARCHAR(50),
+    id_patio_atual_origem VARCHAR(50), -- ID do pátio atual no sistema de origem
     placa VARCHAR(10),
     chassi VARCHAR(20),
     marca VARCHAR(50),
@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS stg_veiculo (
 
 -- Tabela de Staging para CLIENTE
 CREATE TABLE IF NOT EXISTS stg_cliente (
-    id_cliente_origem INT,
+    id_cliente_origem VARCHAR(50),
     tipo_cliente VARCHAR(5),
     nome_razao_social VARCHAR(100),
     cpf VARCHAR(11),
@@ -73,9 +73,9 @@ CREATE TABLE IF NOT EXISTS stg_cliente (
 
 -- Tabela de Staging para CONDUTOR
 CREATE TABLE IF NOT EXISTS stg_condutor (
-    id_condutor_origem INT,
-    id_cliente_origem INT, -- Ajustado para ser id_cliente apenas, conforme seu DDL mais recente
-    id_funcionario_pj_origem INT, -- Manter se for mapeado de outros grupos
+    id_condutor_origem VARCHAR(50),
+    id_cliente_origem VARCHAR(50), -- Ajustado para ser id_cliente apenas, conforme seu DDL mais recente
+    id_funcionario_pj_origem VARCHAR(50), -- Manter se for mapeado de outros grupos
     nome_completo VARCHAR(100),
     numero_cnh VARCHAR(20),
     categoria_cnh VARCHAR(10),
@@ -92,11 +92,11 @@ CREATE TABLE IF NOT EXISTS stg_condutor (
 
 -- Tabela de Staging para RESERVA
 CREATE TABLE IF NOT EXISTS stg_reserva (
-    id_reserva_origem INT,
-    id_cliente_origem INT,
-    id_grupo_veiculo_origem INT,
-    id_patio_retirada_previsto_origem INT,
-    id_patio_devolucao_previsto_origem INT, -- Adicionado para alinhar com modelo dimensional completo
+    id_reserva_origem VARCHAR(50),
+    id_cliente_origem VARCHAR(50),
+    id_grupo_veiculo_origem VARCHAR(50),
+    id_patio_retirada_previsto_origem VARCHAR(50),
+    id_patio_devolucao_previsto_origem VARCHAR(50), -- Adicionado para alinhar com modelo dimensional completo
     data_hora_reserva DATETIME,
     data_hora_retirada_prevista DATETIME,
     data_hora_devolucao_prevista DATETIME,
@@ -107,14 +107,14 @@ CREATE TABLE IF NOT EXISTS stg_reserva (
 
 -- Tabela de Staging para LOCACAO
 CREATE TABLE IF NOT EXISTS stg_locacao (
-    id_locacao_origem INT,
-    id_reserva_origem INT, -- Pode ser NULL
-    id_cliente_origem INT,
-    id_veiculo_origem INT,
-    id_condutor_origem INT,
-    id_patio_retirada_real_origem INT,
-    id_patio_devolucao_prevista_origem INT,
-    id_patio_devolucao_real_origem INT, -- Pode ser NULL
+    id_locacao_origem VARCHAR(50),
+    id_reserva_origem VARCHAR(50), -- Pode ser NULL
+    id_cliente_origem VARCHAR(50),
+    id_veiculo_origem VARCHAR(50),
+    id_condutor_origem VARCHAR(50),
+    id_patio_retirada_real_origem VARCHAR(50),
+    id_patio_devolucao_prevista_origem VARCHAR(50),
+    id_patio_devolucao_real_origem VARCHAR(50), -- Pode ser NULL
     data_hora_retirada_real DATETIME,
     data_hora_devolucao_prevista DATETIME,
     data_hora_devolucao_real DATETIME, -- Pode ser NULL
@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS stg_locacao (
 
 -- Tabela de Staging para SEGURO (tipos de seguro)
 CREATE TABLE IF NOT EXISTS stg_seguro (
-    id_seguro_origem INT,
+    id_seguro_origem VARCHAR(50),
     nome_seguro VARCHAR(100),
     descricao TEXT,
     valor_diario DECIMAL(10, 2),
@@ -140,8 +140,8 @@ CREATE TABLE IF NOT EXISTS stg_seguro (
 
 -- Tabela de Staging para COBRANCA (mantida para detalhe, mas não é principal para movimentação de pátio)
 CREATE TABLE IF NOT EXISTS stg_cobranca (
-    id_cobranca_origem INT,
-    id_locacao_origem INT,
+    id_cobranca_origem VARCHAR(50),
+    id_locacao_origem VARCHAR(50),
     data_cobranca DATETIME, -- Ajustado para DATETIME para flexibilidade
     valor_base DECIMAL(10, 2),
     valor_multas_taxas DECIMAL(10, 2),
@@ -159,10 +159,10 @@ CREATE TABLE IF NOT EXISTS stg_cobranca (
 -- Esta tabela pode ser populada a partir de diferentes fontes (logs, fotos, prontuários)
 -- para registrar eventos de entrada/saída de veículos nos pátios ou mudança de estado.
 CREATE TABLE IF NOT EXISTS stg_estado_veiculo_locacao (
-    id_estado_veiculo_locacao_origem INT, -- ID do evento de origem (ex: id de prontuário, id de foto, id de log de pátio)
-    id_locacao_origem INT, -- Opcional: ID da locação associada ao evento
-    id_veiculo_origem INT, -- ID do veículo envolvido
-    id_patio_origem INT, -- Pátio onde o evento ocorreu
+    id_estado_veiculo_locacao_origem VARCHAR(50), -- ID do evento de origem (ex: id de prontuário, id de foto, id de log de pátio)
+    id_locacao_origem VARCHAR(50), -- Opcional: ID da locação associada ao evento
+    id_veiculo_origem VARCHAR(50), -- ID do veículo envolvido
+    id_patio_origem VARCHAR(50), -- Pátio onde o evento ocorreu
     tipo_registro VARCHAR(50), -- Ex: 'Entrega', 'Devolucao', 'Manutencao', 'EntradaPatio', 'SaidaPatio'
     data_hora_registro DATETIME,
     nivel_combustivel DECIMAL(3, 2),

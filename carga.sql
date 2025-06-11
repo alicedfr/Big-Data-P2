@@ -12,26 +12,25 @@ USE locadora_dw;
 -- --- CARGA DAS DIMENSÕES (SCD Type 1 e Type 2) ---
 
 -- Carga da Dimensão de Empresa (Dim_Empresa) - SCD Tipo 1
--- ATUALIZA ou INSERE.
--- 'ON DUPLICATE KEY UPDATE' é ideal para SCD Tipo 1.
--- Uma UNIQUE INDEX na combinação (id_empresa_origem, sistema_origem) é necessária em Dim_Empresa
--- para que ON DUPLICATE KEY UPDATE funcione corretamente.
-INSERT INTO Dim_Empresa (id_empresa_origem, sistema_origem, nome_empresa, cnpj_empresa, endereco_empresa)
+-- ATUALIZA ou INSERE. Uma UNIQUE KEY na combinação (id_empresa_origem, sistema_origem) é necessária.
+INSERT INTO Dim_Empresa (id_empresa_origem, sistema_origem, nome_empresa, cnpj_empresa, endereco_empresa, telefone_empresa)
 SELECT
     id_empresa_origem,
     sistema_origem,
     nome_empresa,
     cnpj,
-    endereco_empresa
+    endereco_empresa,
+    telefone_empresa
 FROM locadora_dw_staging.temp_dim_empresa
-ON DUPLICATE KEY UPDATE -- Se a chave de negócio (id_origem, sistema_origem) já existe, atualiza
+ON DUPLICATE KEY UPDATE -- Se a chave de negócio já existe, atualiza os atributos
     nome_empresa = VALUES(nome_empresa),
     cnpj_empresa = VALUES(cnpj_empresa),
-    endereco_empresa = VALUES(endereco_empresa);
+    endereco_empresa = VALUES(endereco_empresa),
+    telefone_empresa = VALUES(telefone_empresa);
+
 
 -- Carga da Dimensão de Pátio (Dim_Patio) - SCD Tipo 1
--- ATUALIZA ou INSERE.
--- Uma UNIQUE INDEX na combinação (id_patio_origem, sistema_origem) é necessária em Dim_Patio.
+-- ATUALIZA ou INSERE. Uma UNIQUE KEY na combinação (id_patio_origem, sistema_origem) é necessária.
 INSERT INTO Dim_Patio (id_patio_origem, sistema_origem, nome_patio, endereco_patio, cidade_patio, estado_patio, capacidade_vagas_patio, nome_empresa_proprietaria)
 SELECT
     id_patio_origem,
@@ -50,6 +49,7 @@ ON DUPLICATE KEY UPDATE
     estado_patio = VALUES(estado_patio),
     capacidade_vagas_patio = VALUES(capacidade_vagas_patio),
     nome_empresa_proprietaria = VALUES(nome_empresa_proprietaria);
+
 
 -- Carga da Dimensão de Cliente (Dim_Cliente) - SCD Tipo 2
 -- Lógica para inserir novas versões e desativar versões antigas.
@@ -98,6 +98,9 @@ JOIN locadora_dw_staging.temp_dim_cliente tdc
     ON dc.id_cliente_origem = tdc.id_cliente_origem
     AND dc.sistema_origem = tdc.sistema_origem
     AND dc.flag_ativo = TRUE
+SET
+    dc.data_fim_vigencia = CURRENT_TIMESTAMP,
+    dc.flag_ativo = FALSE
 WHERE
     (   -- Condição para detectar mudança em qualquer atributo rastreado para SCD Tipo 2
         dc.nome_razao_social <> tdc.nome_razao_social OR
@@ -111,8 +114,8 @@ WHERE
         dc.pais_cliente <> tdc.pais_cliente
         -- Adicione TODAS as colunas que disparam uma nova versão aqui
     )
-    AND dc.data_fim_vigencia = '9999-12-31 23:59:59';
--- Apenas para versões ativas atualmente
+    AND dc.data_fim_vigencia = '9999-12-31 23:59:59'; -- Apenas para versões ativas atualmente
+
 
 -- Carga da Dimensão de Veículo (Dim_Veiculo) - SCD Tipo 2
 -- Lógica similar à de Cliente para inserir novas versões e desativar antigas.
@@ -186,6 +189,7 @@ WHERE
     )
     AND dv.data_fim_vigencia = '9999-12-31 23:59:59';
 
+
 -- Carga da Dimensão de Condutor (Dim_Condutor) - SCD Tipo 1
 INSERT INTO Dim_Condutor (id_condutor_origem, sistema_origem, nome_completo_condutor, numero_cnh_condutor, categoria_cnh_condutor, data_expiracao_cnh_condutor, data_nascimento_condutor, nacionalidade_condutor, tipo_documento_habilitacao, pais_emissao_cnh, data_entrada_brasil, flag_traducao_juramentada)
 SELECT
@@ -214,6 +218,7 @@ ON DUPLICATE KEY UPDATE
     data_entrada_brasil = VALUES(data_entrada_brasil),
     flag_traducao_juramentada = VALUES(flag_traducao_juramentada);
 
+
 -- Carga da Dimensão de Seguro (Dim_Seguro) - SCD Tipo 1
 INSERT INTO Dim_Seguro (id_seguro_origem, sistema_origem, nome_seguro, descricao_seguro, valor_diario_seguro)
 SELECT
@@ -228,24 +233,26 @@ ON DUPLICATE KEY UPDATE
     descricao_seguro = VALUES(descricao_seguro),
     valor_diario_seguro = VALUES(valor_diario_seguro);
 
+
 -- --- CARGA DAS TABELAS DE FATOS ---
 
 -- Carga da Tabela de Fatos: Fato_Locacao
 INSERT INTO Fato_Locacao (sk_tempo_retirada, sk_tempo_devolucao_prevista, sk_tempo_devolucao_real, sk_cliente, sk_veiculo, sk_condutor, sk_patio_retirada, sk_patio_devolucao_prevista, sk_patio_devolucao_real, sk_status_locacao, sk_seguro, id_locacao_origem, sistema_origem, valor_total_locacao, valor_base_locacao, valor_multas_taxas, valor_seguro, valor_descontos, quilometragem_percorrida, duracao_locacao_horas_prevista, duracao_locacao_horas_real, quant_locacoes)
 SELECT
-    -- Resolução de SKs para Dim_Tempo (assumindo Dim_Tempo pré-populada com granularidade de dia e hora/minuto)
-    (SELECT sk_tempo FROM Dim_Tempo WHERE data_completa = tfl.data_retirada_date AND HOUR = HOUR(tfl.hora_retirada_time) AND MINUTE = MINUTE(tfl.hora_retirada_time) LIMIT 1) AS sk_tempo_retirada,
-    (SELECT sk_tempo FROM Dim_Tempo WHERE data_completa = tfl.data_dev_prev_date AND HOUR = HOUR(tfl.hora_dev_prev_time) AND MINUTE = MINUTE(tfl.hora_dev_prev_time) LIMIT 1) AS sk_tempo_devolucao_prevista,
-    (SELECT sk_tempo FROM Dim_Tempo WHERE data_completa = tfl.data_dev_real_date AND HOUR = HOUR(tfl.hora_dev_real_time) AND MINUTE = MINUTE(tfl.hora_dev_real_time) LIMIT 1) AS sk_tempo_devolucao_real,
+    -- Resolução de SKs para Dim_Tempo (assumindo Dim_Tempo pré-populada com granularidade de dia e hora/minuto/segundo)
+    COALESCE((SELECT sk_tempo FROM Dim_Tempo WHERE data_completa = tfl.data_retirada_date AND hora = HOUR(tfl.hora_retirada_time) AND minuto = MINUTE(tfl.hora_retirada_time) AND segundo = SECOND(tfl.hora_retirada_time) LIMIT 1), -1) AS sk_tempo_retirada,
+    COALESCE((SELECT sk_tempo FROM Dim_Tempo WHERE data_completa = tfl.data_dev_prev_date AND hora = HOUR(tfl.hora_dev_prev_time) AND minuto = MINUTE(tfl.hora_dev_prev_time) AND segundo = SECOND(tfl.hora_dev_prev_time) LIMIT 1), -1) AS sk_tempo_devolucao_prevista,
+    COALESCE((SELECT sk_tempo FROM Dim_Tempo WHERE data_completa = tfl.data_dev_real_date AND hora = HOUR(tfl.hora_dev_real_time) AND minuto = MINUTE(tfl.hora_dev_real_time) AND segundo = SECOND(tfl.hora_dev_real_time) LIMIT 1), -1) AS sk_tempo_devolucao_real,
     -- Resolução de SKs para outras dimensões (usando as chaves de negócio + sistema_origem)
-    (SELECT sk_cliente FROM Dim_Cliente WHERE id_cliente_origem = tfl.id_cliente_origem AND sistema_origem = tfl.sistema_origem AND flag_ativo = TRUE LIMIT 1) AS sk_cliente,
-    (SELECT sk_veiculo FROM Dim_Veiculo WHERE id_veiculo_origem = tfl.id_veiculo_origem AND sistema_origem = tfl.sistema_origem AND flag_ativo = TRUE LIMIT 1) AS sk_veiculo,
-    (SELECT sk_condutor FROM Dim_Condutor WHERE id_condutor_origem = tfl.id_condutor_origem AND sistema_origem = tfl.sistema_origem LIMIT 1) AS sk_condutor,
-    (SELECT sk_patio FROM Dim_Patio WHERE id_patio_origem = tfl.id_patio_retirada_real_origem AND sistema_origem = tfl.sistema_origem LIMIT 1) AS sk_patio_retirada,
-    (SELECT sk_patio FROM Dim_Patio WHERE id_patio_origem = tfl.id_patio_devolucao_prevista_origem AND sistema_origem = tfl.sistema_origem LIMIT 1) AS sk_patio_devolucao_prevista,
-    (SELECT sk_patio FROM Dim_Patio WHERE id_patio_origem = tfl.id_patio_devolucao_real_origem AND sistema_origem = tfl.sistema_origem LIMIT 1) AS sk_patio_devolucao_real,
-    (SELECT sk_status_locacao FROM Dim_Status_Locacao WHERE nome_status_locacao = tfl.status_locacao_nome LIMIT 1) AS sk_status_locacao,
-    (SELECT sk_seguro FROM Dim_Seguro WHERE id_seguro_contratado_origem = tfl.id_seguro_contratado_origem AND sistema_origem = tfl.sistema_origem LIMIT 1) AS sk_seguro,
+    COALESCE((SELECT sk_cliente FROM Dim_Cliente WHERE id_cliente_origem = tfl.id_cliente_origem AND sistema_origem = tfl.sistema_origem AND flag_ativo = TRUE LIMIT 1), -1) AS sk_cliente,
+    COALESCE((SELECT sk_veiculo FROM Dim_Veiculo WHERE id_veiculo_origem = tfl.id_veiculo_origem AND sistema_origem = tfl.sistema_origem AND flag_ativo = TRUE LIMIT 1), -1) AS sk_veiculo,
+    COALESCE((SELECT sk_condutor FROM Dim_Condutor WHERE id_condutor_origem = tfl.id_condutor_origem AND sistema_origem = tfl.sistema_origem LIMIT 1), -1) AS sk_condutor,
+    COALESCE((SELECT sk_patio FROM Dim_Patio WHERE id_patio_origem = tfl.id_patio_retirada_real_origem AND sistema_origem = tfl.sistema_origem LIMIT 1), -1) AS sk_patio_retirada,
+    COALESCE((SELECT sk_patio FROM Dim_Patio WHERE id_patio_origem = tfl.id_patio_devolucao_prevista_origem AND sistema_origem = tfl.sistema_origem LIMIT 1), -1) AS sk_patio_devolucao_prevista,
+    COALESCE((SELECT sk_patio FROM Dim_Patio WHERE id_patio_origem = tfl.id_patio_devolucao_real_origem AND sistema_origem = tfl.sistema_origem LIMIT 1), -1) AS sk_patio_devolucao_real,
+    COALESCE((SELECT sk_status_locacao FROM Dim_Status_Locacao WHERE nome_status_locacao = tfl.status_locacao_nome LIMIT 1), -1) AS sk_status_locacao,
+    COALESCE((SELECT sk_seguro FROM Dim_Seguro WHERE id_seguro_origem = tfl.id_seguro_contratado_origem AND sistema_origem = tfl.sistema_origem LIMIT 1), -1) AS sk_seguro,
+
     tfl.id_locacao_origem,
     tfl.sistema_origem,
     tfl.valor_total_locacao,
@@ -265,19 +272,21 @@ WHERE NOT EXISTS ( -- Evita duplicatas em recargas (incremental)
     AND fl.sistema_origem = tfl.sistema_origem
 );
 
+
 -- Carga da Tabela de Fatos: Fato_Reserva
 INSERT INTO Fato_Reserva (sk_tempo_reserva, sk_tempo_retirada_prevista, sk_tempo_devolucao_prevista, sk_cliente, sk_grupo_veiculo, sk_patio_retirada, sk_status_reserva, id_reserva_origem, sistema_origem, quant_reservas, dias_antecedencia_reserva, duracao_reserva_horas_prevista)
 SELECT
     -- Resolução de SKs para Dim_Tempo
-    (SELECT sk_tempo FROM Dim_Tempo WHERE data_completa = tfr.data_reserva_date AND HOUR = HOUR(tfr.hora_reserva_time) AND MINUTE = MINUTE(tfr.hora_reserva_time) LIMIT 1) AS sk_tempo_reserva,
-    (SELECT sk_tempo FROM Dim_Tempo WHERE data_completa = tfr.data_ret_prev_date AND HOUR = HOUR(tfr.hora_ret_prev_time) AND MINUTE = MINUTE(tfr.hora_ret_prev_time) LIMIT 1) AS sk_tempo_retirada_prevista,
-    (SELECT sk_tempo FROM Dim_Tempo WHERE data_completa = tfr.data_dev_prev_date AND HOUR = HOUR(tfr.hora_dev_prev_time) AND MINUTE = MINUTE(tfr.hora_dev_prev_time) LIMIT 1) AS sk_tempo_devolucao_prevista,
+    COALESCE((SELECT sk_tempo FROM Dim_Tempo WHERE data_completa = tfr.data_reserva_date AND hora = HOUR(tfr.hora_reserva_time) AND minuto = MINUTE(tfr.hora_reserva_time) AND segundo = SECOND(tfr.hora_reserva_time) LIMIT 1), -1) AS sk_tempo_reserva,
+    COALESCE((SELECT sk_tempo FROM Dim_Tempo WHERE data_completa = tfr.data_ret_prev_date AND hora = HOUR(tfr.hora_ret_prev_time) AND minuto = MINUTE(tfr.hora_ret_prev_time) AND segundo = SECOND(tfr.hora_ret_prev_time) LIMIT 1), -1) AS sk_tempo_retirada_prevista,
+    COALESCE((SELECT sk_tempo FROM Dim_Tempo WHERE data_completa = tfr.data_dev_prev_date AND hora = HOUR(tfr.hora_dev_prev_time) AND minuto = MINUTE(tfr.hora_dev_prev_time) AND segundo = SECOND(tfr.hora_dev_prev_time) LIMIT 1), -1) AS sk_tempo_devolucao_prevista,
     -- Resolução de SKs para outras dimensões
-    (SELECT sk_cliente FROM Dim_Cliente WHERE id_cliente_origem = tfr.id_cliente_origem AND sistema_origem = tfr.sistema_origem AND flag_ativo = TRUE LIMIT 1) AS sk_cliente,
-    -- NOTA: sk_grupo_veiculo referencia Dim_Veiculo.
-    (SELECT sk_veiculo FROM Dim_Veiculo WHERE id_veiculo_origem = tfr.id_grupo_veiculo_origem AND sistema_origem = tfr.sistema_origem AND flag_ativo = TRUE LIMIT 1) AS sk_grupo_veiculo,
-    (SELECT sk_patio FROM Dim_Patio WHERE id_patio_origem = tfr.id_patio_retirada_previsto_origem AND sistema_origem = tfr.sistema_origem LIMIT 1) AS sk_patio_retirada,
-    (SELECT sk_status_reserva FROM Dim_Status_Reserva WHERE nome_status_reserva = tfr.status_reserva_nome LIMIT 1) AS sk_status_reserva,
+    COALESCE((SELECT sk_cliente FROM Dim_Cliente WHERE id_cliente_origem = tfr.id_cliente_origem AND sistema_origem = tfr.sistema_origem AND flag_ativo = TRUE LIMIT 1), -1) AS sk_cliente,
+    -- NOTA: sk_grupo_veiculo referencia Dim_Veiculo. Usamos a chave de negócio do grupo do veículo para encontrar a SK.
+    COALESCE((SELECT sk_veiculo FROM Dim_Veiculo WHERE id_veiculo_origem = tfr.id_grupo_veiculo_origem AND sistema_origem = tfr.sistema_origem AND flag_ativo = TRUE LIMIT 1), -1) AS sk_grupo_veiculo,
+    COALESCE((SELECT sk_patio FROM Dim_Patio WHERE id_patio_origem = tfr.id_patio_retirada_previsto_origem AND sistema_origem = tfr.sistema_origem LIMIT 1), -1) AS sk_patio_retirada,
+    COALESCE((SELECT sk_status_reserva FROM Dim_Status_Reserva WHERE nome_status_reserva = tfr.status_reserva_nome LIMIT 1), -1) AS sk_status_reserva,
+
     tfr.id_reserva_origem,
     tfr.sistema_origem,
     tfr.quant_reservas,
@@ -291,20 +300,25 @@ WHERE NOT EXISTS (
     AND fr.sistema_origem = tfr.sistema_origem
 );
 
+
 -- Carga da Tabela de Fatos: Fato_Movimentacao_Patio
 INSERT INTO Fato_Movimentacao_Patio (sk_tempo_movimentacao, sk_veiculo, sk_patio_origem, sk_patio_destino, sk_tipo_movimentacao, sk_empresa_proprietaria_frota, sk_empresa_patio, id_estado_veiculo_locacao_origem, id_locacao_origem, sistema_origem, quant_movimentacoes, ocupacao_veiculo_horas)
 SELECT
     -- Resolução de SKs para Dim_Tempo
-    (SELECT sk_tempo FROM Dim_Tempo WHERE data_completa = tfmp.data_mov_date AND HOUR = HOUR(tfmp.hora_mov_time) AND MINUTE = MINUTE(tfmp.hora_mov_time) LIMIT 1) AS sk_tempo_movimentacao,
+    COALESCE((SELECT sk_tempo FROM Dim_Tempo WHERE data_completa = tfmp.data_mov_date AND hora = HOUR(tfmp.hora_mov_time) AND minuto = MINUTE(tfmp.hora_mov_time) AND segundo = SECOND(tfmp.hora_mov_time) LIMIT 1), -1) AS sk_tempo_movimentacao,
     -- Resolução de SKs para outras dimensões
-    (SELECT sk_veiculo FROM Dim_Veiculo WHERE id_veiculo_origem = tfmp.id_veiculo_origem AND sistema_origem = tfmp.sistema_origem AND flag_ativo = TRUE LIMIT 1) AS sk_veiculo,
-    (SELECT sk_patio FROM Dim_Patio WHERE id_patio_origem = tfmp.id_patio_origem AND sistema_origem = tfmp.sistema_origem LIMIT 1) AS sk_patio_origem,
-    (SELECT sk_patio FROM Dim_Patio WHERE id_patio_origem = tfmp.id_patio_destino AND sistema_origem = tfmp.sistema_origem LIMIT 1) AS sk_patio_destino,
-    (SELECT sk_tipo_movimentacao FROM Dim_Tipo_Movimentacao_Patio WHERE nome_tipo_movimentacao = tfmp.tipo_movimentacao_nome LIMIT 1) AS sk_tipo_movimentacao,
-    (SELECT sk_empresa FROM Dim_Empresa WHERE id_empresa_origem = tfmp.id_empresa_proprietaria_frota_origem AND sistema_origem = tfmp.sistema_origem LIMIT 1) AS sk_empresa_proprietaria_frota,
-    (SELECT sk_empresa FROM Dim_Empresa WHERE id_empresa_origem = tfmp.id_empresa_patio_origem AND sistema_origem = tfmp.sistema_origem LIMIT 1) AS sk_empresa_patio,
-    tfmp.id_evento_origem AS id_estado_veiculo_locacao_origem, -- Reuso de campo para rastreabilidade
-    tfmp.id_locacao_origem, -- Pode ser NULL
+    COALESCE((SELECT sk_veiculo FROM Dim_Veiculo WHERE id_veiculo_origem = tfmp.id_veiculo_origem AND sistema_origem = tfmp.sistema_origem AND flag_ativo = TRUE LIMIT 1), -1) AS sk_veiculo,
+    COALESCE((SELECT sk_patio FROM Dim_Patio WHERE id_patio_origem = tfmp.id_patio_origem AND sistema_origem = tfmp.sistema_origem LIMIT 1), -1) AS sk_patio_origem,
+    COALESCE((SELECT sk_patio FROM Dim_Patio WHERE id_patio_origem = tfmp.id_patio_destino AND sistema_origem = tfmp.sistema_origem LIMIT 1), -1) AS sk_patio_destino,
+    COALESCE((SELECT sk_tipo_movimentacao FROM Dim_Tipo_Movimentacao_Patio WHERE nome_tipo_movimentacao = tfmp.tipo_movimentacao_nome LIMIT 1), -1) AS sk_tipo_movimentacao,
+    
+    -- Resolução de SKs para Empresa Proprietária da Frota e do Pátio
+    -- É crucial garantir que as empresas estejam carregadas na Dim_Empresa antes.
+    COALESCE((SELECT sk_empresa FROM Dim_Empresa de WHERE de.id_empresa_origem = (SELECT tmp.id_empresa_proprietaria FROM locadora_dw_staging.temp_dim_patio tmp WHERE tmp.id_patio_origem = COALESCE(tfmp.id_patio_origem, tfmp.id_patio_destino) AND tmp.sistema_origem = tfmp.sistema_origem LIMIT 1) AND de.sistema_origem = tfmp.sistema_origem LIMIT 1), -1) AS sk_empresa_proprietaria_frota,
+    COALESCE((SELECT sk_empresa FROM Dim_Empresa de WHERE de.id_empresa_origem = (SELECT tmp.id_empresa_proprietaria FROM locadora_dw_staging.temp_dim_patio tmp WHERE tmp.id_patio_origem = COALESCE(tfmp.id_patio_origem, tfmp.id_patio_destino) AND tmp.sistema_origem = tfmp.sistema_origem LIMIT 1) AND de.sistema_origem = tfmp.sistema_origem LIMIT 1), -1) AS sk_empresa_patio,
+
+    tfmp.id_evento_origem AS id_estado_veiculo_locacao_origem,
+    tfmp.id_locacao_origem,
     tfmp.sistema_origem,
     tfmp.quant_movimentacoes,
     tfmp.ocupacao_veiculo_horas
@@ -312,6 +326,6 @@ FROM locadora_dw_staging.temp_fato_movimentacao_patio tfmp
 WHERE NOT EXISTS (
     SELECT 1
     FROM Fato_Movimentacao_Patio fmp
-    WHERE fmp.id_estado_veiculo_locacao_origem = tfmp.id_evento_origem -- Assumindo que id_evento_origem é único para movimentação
+    WHERE fmp.id_estado_veiculo_locacao_origem = tfmp.id_evento_origem
     AND fmp.sistema_origem = tfmp.sistema_origem
 );
