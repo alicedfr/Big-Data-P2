@@ -11,69 +11,67 @@
  ********************************************************************************/
 
 -- Cria o schema (database) se ele não existir.
-CREATE SCHEMA IF NOT EXISTS `staging`;
-USE `staging`;
+CREATE SCHEMA IF NOT EXISTS staging;
+USE staging;
 
 -- Tabela de Staging para Clientes
-CREATE TABLE IF NOT EXISTS `staging`.`clientes` (
-    `fonte_dados`          VARCHAR(50),
-    `id_cliente_origem`    VARCHAR(100),
-    `nome_razao_social`    VARCHAR(255),
-    `cpf`                  VARCHAR(14),
-    `cnpj`                 VARCHAR(20),
-    `cpf_cnpj_unificado`   VARCHAR(20),
-    `email`                VARCHAR(255),
-    `cidade`               VARCHAR(100),
-    `estado`               VARCHAR(50)
+CREATE TABLE IF NOT EXISTS stg_clientes (
+  id_cliente_origem VARCHAR(50),
+  nome VARCHAR(100),
+  tipo_cliente VARCHAR(2),
+  cpf_cnpj VARCHAR(20),
+  cidade VARCHAR(100),
+  estado VARCHAR(50),
+  email VARCHAR(100),
+  telefone VARCHAR(20)
 );
 
 -- Tabela de Staging para Veículos
-CREATE TABLE IF NOT EXISTS `staging`.`veiculos` (
-    `fonte_dados`          VARCHAR(50),
-    `id_veiculo_origem`    VARCHAR(100),
-    `placa`                VARCHAR(12) NOT NULL,
-    `chassi`               VARCHAR(50),
-    `marca`                VARCHAR(100),
-    `modelo`               VARCHAR(100),
-    `ano_fabricacao`       INTEGER,
-    `cor`                  VARCHAR(50),
-    `grupo_veiculo`        VARCHAR(100),
-    `mecanizacao_texto`    VARCHAR(20),
-    `mecanizacao_bool`     BOOLEAN,
-    `empresa_proprietaria` VARCHAR(100)
+CREATE TABLE IF NOT EXISTS stg_veiculos (
+  id_veiculo_origem VARCHAR(50),
+  placa VARCHAR(10),
+  chassi VARCHAR(20),
+  marca VARCHAR(50),
+  modelo VARCHAR(50),
+  cor VARCHAR(30),
+  tipo_mecanizacao VARCHAR(20),
+  grupo VARCHAR(50),
+  status_veiculo VARCHAR(20)
 );
 
 -- Tabela de Staging para Pátios
-CREATE TABLE IF NOT EXISTS `staging`.`patios` (
-    `fonte_dados`          VARCHAR(50),
-    `id_patio_origem`      VARCHAR(100),
-    `nome_patio`           VARCHAR(255) NOT NULL,
-    `endereco_patio`       VARCHAR(500),
-    `cidade_patio`         VARCHAR(100),
-    `empresa_gestora`      VARCHAR(100)
+CREATE TABLE IF NOT EXISTS stg_patios (
+  id_patio_origem VARCHAR(50),
+  nome VARCHAR(100),
+  endereco VARCHAR(255),
+  capacidade_estimada INT
 );
 
 -- Tabela de Staging para Locações
-CREATE TABLE IF NOT EXISTS `staging`.`locacoes` (
-    `fonte_dados`                  VARCHAR(50),
-    `id_locacao_origem`            VARCHAR(100),
-    `id_cliente_origem`            VARCHAR(100),
-    `id_veiculo_origem`            VARCHAR(100),
-    `id_patio_retirada_origem`     VARCHAR(100),
-    `id_patio_devolucao_origem`    VARCHAR(100),
-    `data_retirada`                DATETIME,
-    `data_devolucao`               DATETIME,
-    `valor_total_pago`             DECIMAL(12, 2)
+CREATE TABLE IF NOT EXISTS stg_locacoes (
+  id_locacao VARCHAR(50),
+  id_cliente VARCHAR(50),
+  id_veiculo VARCHAR(50),
+  data_retirada_real DATETIME,
+  data_devolucao_prevista DATETIME,
+  data_devolucao_real DATETIME,
+  valor_previsto DECIMAL(10,2),
+  valor_final DECIMAL(10,2),
+  status_locacao VARCHAR(20),
+  patio_retirada VARCHAR(100),
+  patio_devolucao VARCHAR(100),
+  cpf_cnpj VARCHAR(20)
 );
 
+
 -- Tabela de Staging para Reservas
-CREATE TABLE IF NOT EXISTS `staging`.`reservas` (
-    `fonte_dados`                  VARCHAR(50),
-    `id_reserva_origem`            VARCHAR(100),
-    `id_cliente_origem`            VARCHAR(100),
-    `grupo_veiculo_desejado`       VARCHAR(100),
-    `id_patio_retirada_origem`     VARCHAR(100),
-    `data_reserva`                 DATETIME,
-    `data_retirada_prevista`       DATETIME,
-    `duracao_prevista_dias`        INTEGER
+CREATE TABLE IF NOT EXISTS stg_reservas (
+  id_reserva VARCHAR(50),
+  id_cliente VARCHAR(50),
+  id_grupo VARCHAR(50),
+  data_reserva DATETIME,
+  data_retirada_prevista DATETIME,
+  data_devolucao_prevista DATETIME,
+  patio_retirada VARCHAR(100),
+  status_reserva VARCHAR(20)
 );

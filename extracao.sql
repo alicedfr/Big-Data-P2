@@ -20,44 +20,136 @@ TRUNCATE TABLE staging.locacoes;
 TRUNCATE TABLE staging.reservas;
 SET FOREIGN_KEY_CHECKS = 1; -- Reabilita a checagem de chaves estrangeiras
 
+SET @last_etl_run_timestamp = '2025-06-19 00:00:00';
+
 -- Inserindo dados de amostra para simular a extração das 4 fontes.
 -- Fonte 1: modelofisico.sql (Nosso Grupo)
-INSERT INTO staging.clientes (fonte_dados, id_cliente_origem, nome_razao_social, cpf, cidade, estado) VALUES
-('Fonte 1', '101', 'João Silva', '111.111.111-11', 'Rio de Janeiro', 'RJ');
-INSERT INTO staging.veiculos (fonte_dados, id_veiculo_origem, placa, marca, modelo, ano_fabricacao, grupo_veiculo, mecanizacao_texto, empresa_proprietaria) VALUES
-('Fonte 1', 'V1', 'ABC1D23', 'Fiat', 'Mobi', 2022, 'Econômico', 'Manual', 'Empresa 1');
-INSERT INTO staging.patios (fonte_dados, id_patio_origem, nome_patio, cidade_patio, empresa_gestora) VALUES
-('Fonte 1', 'P1', 'Aeroporto do Galeão', 'Rio de Janeiro', 'Empresa 1'),
-('Fonte 1', 'P2', 'Santos Dumont', 'Rio de Janeiro', 'Empresa 2');
-INSERT INTO staging.locacoes (fonte_dados, id_locacao_origem, id_cliente_origem, id_veiculo_origem, id_patio_retirada_origem, id_patio_devolucao_origem, data_retirada, data_devolucao, valor_total_pago) VALUES
-('Fonte 1', 'L1', '101', 'V1', 'P1', 'P2', '2025-05-10', '2025-05-15', 550.00);
+
+-- Extração de Clientes Novos/Modificados
+-- Assumindo que a tabela `CLIENTE` tem um campo `data_cadastro` para controle incremental.
+INSERT INTO staging.stg_clientes (id_cliente_origem, nome, tipo_cliente, cpf_cnpj, cidade, estado, email, telefone)
+SELECT
+    c.id_cliente,
+    c.nome_razao_social,
+    c.tipo_cliente,
+    COALESCE(c.cpf, c.cnpj),
+    SUBSTRING_INDEX(SUBSTRING_INDEX(c.endereco, ',', -2), ',', 1), -- Lógica para extrair cidade
+    SUBSTRING_INDEX(c.endereco, ',', -1), -- Lógica para extrair estado
+    c.email,
+    c.telefone
+FROM locadora_empresa1.CLIENTE c
+WHERE c.id_cliente > (SELECT MAX(id_cliente_origem) FROM staging.stg_clientes WHERE fonte = 'Empresa 1'); -- Exemplo de controle por ID
+
+-- Extração de Veículos
+INSERT INTO staging.stg_veiculos (id_veiculo_origem, placa, chassi, marca, modelo, cor, tipo_mecanizacao, grupo, status_veiculo)
+SELECT
+    v.id_veiculo,
+    v.placa,
+    v.chassi,
+    v.marca,
+    v.modelo,
+    v.cor,
+    v.tipo_mecanizacao,
+    gv.nome_grupo,
+    v.status_veiculo
+FROM locadora_empresa1.VEICULO v
+JOIN locadora_empresa1.GRUPO_VEICULO gv ON v.id_grupo_veiculo = gv.id_grupo_veiculo;
+
+-- Extração de Pátios
+INSERT INTO staging.stg_patios (id_patio_origem, nome, endereco, capacidade_estimada)
+SELECT
+    id_patio,
+    nome_patio,
+    endereco,
+    capacidade_vagas
+FROM locadora_empresa1.PATIO;
+
+-- Extração de Locações Novas
+INSERT INTO staging.stg_locacoes (id_locacao, id_cliente, id_veiculo, data_retirada_real, data_devolucao_prevista, data_devolucao_real, valor_previsto, valor_final, status_locacao, patio_retirada, patio_devolucao, cpf_cnpj)
+SELECT
+    l.id_locacao,
+    l.id_cliente,
+    l.id_veiculo,
+    l.data_hora_retirada_real,
+    l.data_hora_devolucao_prevista,
+    l.data_hora_devolucao_real,
+    l.valor_total_previsto,
+    c.valor_final_cobranca,
+    l.status_locacao,
+    p_ret.nome_patio,
+    p_dev.nome_patio,
+    cli.cpf_cnpj
+FROM locadora_empresa1.LOCACAO l
+JOIN locadora_empresa1.COBRANCA c ON l.id_locacao = c.id_locacao
+JOIN locadora_empresa1.PATIO p_ret ON l.id_patio_retirada_real = p_ret.id_patio
+LEFT JOIN locadora_empresa1.PATIO p_dev ON l.id_patio_devolucao_real = p_dev.id_patio
+JOIN (SELECT id_cliente, COALESCE(cpf, cnpj) as cpf_cnpj FROM locadora_empresa1.CLIENTE) cli ON l.id_cliente = cli.id_cliente
+WHERE l.data_hora_retirada_real > @last_etl_run_timestamp;
 
 -- Fonte 2: script.sql (Grupo Kauer)
-INSERT INTO staging.clientes (fonte_dados, id_cliente_origem, nome_razao_social, cpf, cidade, estado) VALUES
-('Fonte 2', '201', 'Maria Oliveira', '222.222.222-22', 'São Paulo', 'SP');
-INSERT INTO staging.veiculos (fonte_dados, id_veiculo_origem, placa, marca, modelo, ano_fabricacao, grupo_veiculo, mecanizacao_bool, empresa_proprietaria) VALUES
-('Fonte 2', 'V55', 'DEF4E56', 'Hyundai', 'Creta', 2023, 'SUV', true, 'Empresa 2');
-INSERT INTO staging.patios (fonte_dados, id_patio_origem, nome_patio, cidade_patio, empresa_gestora) VALUES
-('Fonte 2', 'P2', 'Santos Dumont', 'Rio de Janeiro', 'Empresa 2');
-INSERT INTO staging.locacoes (fonte_dados, id_locacao_origem, id_cliente_origem, id_veiculo_origem, id_patio_retirada_origem, id_patio_devolucao_origem, data_retirada, data_devolucao, valor_total_pago) VALUES
-('Fonte 2', 'L500', '201', 'V55', 'P2', 'P2', '2025-06-01', '2025-06-10', 1200.75);
+INSERT INTO staging.stg_clientes (id_cliente_origem, nome, tipo_cliente, cpf_cnpj, cidade, estado, email, telefone)
+SELECT
+    c.id_cliente,
+    COALESCE(pf.nome_completo, pj.nome_empresa),
+    c.tipo_cliente,
+    COALESCE(pf.cpf, pj.cnpj),
+    'N/A', 'N/A', c.email, c.telefone_principal
+FROM locadora_empresa2.cliente c
+LEFT JOIN locadora_empresa2.pessoa_fisica pf ON c.id_cliente = pf.id_cliente
+LEFT JOIN locadora_empresa2.pessoa_juridica pj ON c.id_cliente = pj.id_cliente
+WHERE c.data_cadastro > @last_etl_run_timestamp;
+
+INSERT INTO staging.stg_locacoes (id_locacao, id_cliente, id_veiculo, data_retirada_real, data_devolucao_real, valor_final, status_locacao, patio_retirada, patio_devolucao, cpf_cnpj)
+SELECT
+    ct.id_contrato, ct.id_cliente, ct.id_veiculo, ct.data_hora_contrato,
+    NULL, cb.valor, ct.status_locacao, p_ret.nome_patio, p_dev.nome_patio,
+    cli.cpf_cnpj
+FROM locadora_empresa2.contrato ct
+JOIN locadora_empresa2.cobranca cb ON ct.id_contrato = cb.id_contrato
+JOIN locadora_empresa2.patio p_ret ON ct.id_patio_retirada = p_ret.id_patio
+LEFT JOIN locadora_empresa2.patio p_dev ON ct.id_patio_devolucao_efetiva = p_dev.id_patio
+JOIN (
+    SELECT c.id_cliente, COALESCE(pf.cpf, pj.cnpj) as cpf_cnpj
+    FROM locadora_empresa2.cliente c
+    LEFT JOIN locadora_empresa2.pessoa_fisica pf ON c.id_cliente = pf.id_cliente
+    LEFT JOIN locadora_empresa2.pessoa_juridica pj ON c.id_cliente = pj.id_cliente
+) cli ON ct.id_cliente = cli.id_cliente
+WHERE ct.data_hora_contrato > @last_etl_run_timestamp;
 
 -- Fonte 3: schema.sql (Grupo Medeiro)
-INSERT INTO staging.clientes (fonte_dados, id_cliente_origem, nome_razao_social, cpf_cnpj_unificado, cidade, estado) VALUES
-('Fonte 3', '33', 'Carlos Pereira', '33333333333', 'Belo Horizonte', 'MG');
-INSERT INTO staging.veiculos (fonte_dados, id_veiculo_origem, placa, marca, modelo, ano_fabricacao, grupo_veiculo, mecanizacao_texto, empresa_proprietaria) VALUES
-('Fonte 3', 'V99', 'GHI7F89', 'Jeep', 'Renegade', 2021, 'SUV', 'Automática', 'Empresa 3');
-INSERT INTO staging.patios (fonte_dados, id_patio_origem, nome_patio, cidade_patio, empresa_gestora) VALUES
-('Fonte 3', 'P3', 'Rodoviária', 'Rio de Janeiro', 'Empresa 3');
-INSERT INTO staging.locacoes (fonte_dados, id_locacao_origem, id_cliente_origem, id_veiculo_origem, id_patio_retirada_origem, id_patio_devolucao_origem, data_retirada, data_devolucao, valor_total_pago) VALUES
-('Fonte 3', 'L900', '33', 'V99', 'P3', 'P1', '2025-06-05', '2025-06-08', 980.50);
+INSERT INTO staging.stg_clientes (id_cliente_origem, nome, tipo_cliente, cpf_cnpj, cidade, estado, email, telefone)
+SELECT
+    cliente_id, nome_completo, tipo_pessoa, cpf_cnpj, endereco_cidade, endereco_estado, email, telefone
+FROM locadora_empresa3.clientes
+WHERE data_cadastro > @last_etl_run_timestamp;
+
+INSERT INTO staging.stg_locacoes (id_locacao, id_cliente, id_veiculo, data_retirada_real, data_devolucao_prevista, data_devolucao_real, valor_previsto, valor_final, status_locacao, patio_retirada, patio_devolucao, cpf_cnpj)
+SELECT
+    l.locacao_id, l.cliente_id, l.veiculo_id, l.retirada_real, l.devolucao_prevista,
+    l.devolucao_real, l.valor_previsto, l.valor_final, c.status_pago,
+    p_ret.nome, p_dev.nome, cli.cpf_cnpj
+FROM locadora_empresa3.locacoes l
+JOIN locadora_empresa3.cobrancas c ON l.locacao_id = c.locacao_id
+JOIN locadora_empresa3.patios p_ret ON l.patio_retirada_id = p_ret.patio_id
+LEFT JOIN locadora_empresa3.patios p_dev ON l.patio_devolucao_id = p_dev.patio_id
+JOIN locadora_empresa3.clientes cli ON l.cliente_id = cli.cliente_id
+WHERE l.retirada_real > @last_etl_run_timestamp;
 
 -- Fonte 4: script.sql (Grupo Manhães)
-INSERT INTO staging.clientes (fonte_dados, id_cliente_origem, nome_razao_social, cpf_cnpj_unificado, cidade, estado) VALUES
-('Fonte 4', '404', 'Ana Souza', '44444444414', 'Niterói', 'RJ');
-INSERT INTO staging.veiculos (fonte_dados, id_veiculo_origem, placa, marca, modelo, ano_fabricacao, grupo_veiculo, mecanizacao_texto, empresa_proprietaria) VALUES
-('Fonte 4', 'V4', 'JKL0M12', 'VW', 'Nivus', 2023, 'SUV Compacto', 'Auto', 'Empresa 4');
-INSERT INTO staging.patios (fonte_dados, id_patio_origem, nome_patio, cidade_patio, empresa_gestora) VALUES
-('Fonte 4', 'P4', 'Shopping Rio Sul', 'Rio de Janeiro', 'Empresa 4');
-INSERT INTO staging.locacoes (fonte_dados, id_locacao_origem, id_cliente_origem, id_veiculo_origem, id_patio_retirada_origem, id_patio_devolucao_origem, data_retirada, data_devolucao, valor_total_pago) VALUES
-('Fonte 4', 'L40', '404', 'V4', 'P4', 'P4', '2025-06-12', '2025-06-18', 1500.00);
+INSERT INTO staging.stg_clientes (id_cliente_origem, nome, tipo_cliente, cpf_cnpj, email, telefone)
+SELECT
+    cliente_id, nome_razao, tipo, cpf_cnpj, email, telefone
+FROM locadora_empresa4.CLIENTE; -- Assumindo carga full por falta de data de controle
+
+INSERT INTO staging.stg_locacoes (id_locacao, id_cliente, id_veiculo, data_retirada_real, data_devolucao_prevista, data_devolucao_real, valor_previsto, valor_final, status_locacao, patio_retirada, patio_devolucao, cpf_cnpj)
+SELECT
+    l.locacao_id, r.cliente_id, l.veiculo_id, l.data_retirada, l.data_devolucao_prevista,
+    l.data_devolucao_real, c.valor_base, c.valor_final, c.status_pagamento,
+    p_ret.nome, p_dev.nome, cli.cpf_cnpj
+FROM locadora_empresa4.LOCACAO l
+JOIN locadora_empresa4.RESERVA r ON l.reserva_id = r.reserva_id
+JOIN locadora_empresa4.COBRANCA c ON l.locacao_id = c.locacao_id
+JOIN locadora_empresa4.PATIO p_ret ON l.patio_saida_id = p_ret.patio_id
+LEFT JOIN locadora_empresa4.PATIO p_dev ON l.patio_chegada_id = p_dev.patio_id
+JOIN locadora_empresa4.CLIENTE cli ON r.cliente_id = cli.cliente_id
+WHERE l.data_retirada > @last_etl_run_timestamp;
